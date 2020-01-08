@@ -11,6 +11,8 @@ var runner            = require('./test-runner');
 
 var app = express();
 
+const mongoose = require('mongoose');
+
 app.use('/public', express.static(process.cwd() + '/public'));
 
 app.use(cors({origin: '*'})); //For FCC testing purposes only
