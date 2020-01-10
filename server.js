@@ -1,17 +1,32 @@
 'use strict';
 
-var express     = require('express');
-var bodyParser  = require('body-parser');
-var expect      = require('chai').expect;
-var cors        = require('cors');
+const express     = require('express');
+const bodyParser  = require('body-parser');
+const expect      = require('chai').expect;
+const cors        = require('cors');
+const helmet    = require('helmet');
 
-var apiRoutes         = require('./routes/api.js');
-var fccTestingRoutes  = require('./routes/fcctesting.js');
-var runner            = require('./test-runner');
+const apiRoutes         = require('./routes/api.js');
+const fccTestingRoutes  = require('./routes/fcctesting.js');
+const runner            = require('./test-runner');
 
-var app = express();
+const app = express();
 
 const mongoose = require('mongoose');
+const dbConfig = {
+  useNewUrlParser: true,
+  useFindAndModify: false,
+  useCreateIndex: true,
+  useUnifiedTopology: true
+}
+
+// only allow loading of scripts and css from this server
+app.use(helmet.contentSecurityPolicy({
+  directives: {
+    defaultSrc: ["'self'"],
+    styleSrc: ["'self'"]
+  }
+}))
 
 app.use('/public', express.static(process.cwd() + '/public'));
 
@@ -31,29 +46,43 @@ fccTestingRoutes(app);
 
 //Routing for API 
 apiRoutes(app);  
-    
+
+// Error-handling middleware
+app.use((err, req, res, next) => {
+  console.log("Error caught by middleware")
+  res.send(err.message);
+})
+
 //404 Not Found Middleware
-app.use(function(req, res, next) {
+app.use((req, res, next) => {
   res.status(404)
     .type('text')
     .send('Not Found');
 });
 
-//Start our server and tests!
-app.listen(process.env.PORT || 3000, function () {
-  console.log("Listening on port " + process.env.PORT);
-  if(process.env.NODE_ENV==='test') {
-    console.log('Running Tests...');
-    setTimeout(function () {
-      try {
-        runner.run();
-      } catch(e) {
-        var error = e;
-          console.log('Tests are not valid:');
-          console.log(error);
+
+mongoose.connect(process.env.DB, dbConfig)
+  .then(result => {
+    console.log("Database connected");
+    //Start our server and tests!
+    app.listen(process.env.PORT || 3000, function () {
+      console.log("Listening on port " + process.env.PORT);
+      if(process.env.NODE_ENV==='test') {
+        console.log('Running Tests...');
+        setTimeout(() => {
+          try {
+            runner.run();
+          } catch(e) {
+            var error = e;
+              console.log('Tests are not valid:');
+              console.log(error);
+          }
+        }, 3500);
       }
-    }, 3500);
-  }
-});
+    });
+})
+.catch(err => {
+  console.log(err);
+})
 
 module.exports = app; //for testing
