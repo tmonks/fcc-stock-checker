@@ -12,7 +12,7 @@ const expect = require("chai").expect;
 const fetch = require("node-fetch");
 const mongoose = require("mongoose");
 
-// configure Like schema and model
+// configure schema and model for "likes"
 const likeSchema = new mongoose.Schema({
   stock: { type: String, required: true },
   ipAddress: { type: String, required: true }
@@ -28,9 +28,9 @@ const likeStock = async (stock, ipAddress) => {
     console.log("likeStock successful");
   } catch (err) {
     if (!err.code === 11000) {
+      // ignore error code 11000, which means the like
+      // for this IP already exists
       throw err;
-    } else {
-      console.log("Ignoring error from duplicate like");
     }
   }
 };
@@ -41,6 +41,7 @@ const getLikes = async stock => {
     const likes = await Like.find({ stock });
     return likes.length;
   } catch (err) {
+    console.log(err);
     throw new Error("Error retrieving likes");
   }
 };
@@ -54,15 +55,22 @@ const getPrice = async stock => {
     const json = await response.json();
     return json.latestPrice;
   } catch (err) {
+    console.log(err);
     throw new Error("Error retrieving price for " + stock);
   }
 };
 
 module.exports = app => {
   app.route("/api/stock-prices").get(async (req, res, next) => {
-    const stock = typeof req.query.stock === "string" 
-      ? req.query.stock.toUpperCase() 
-      : req.query.stock[0].toUpperCase();
+    let stock, stock2;
+    if (typeof req.query.stock === "string") {
+      // only one stock was passed
+      stock = req.query.stock.toUpperCase();
+    } else {
+      // array of 2 stocks was passed
+      stock = req.query.stock[0].toUpperCase();
+      stock2 = req.query.stock[1].toUpperCase();
+    }
 
     try {
       if (!stock) {
@@ -72,27 +80,33 @@ module.exports = app => {
       const [ipAddress] = req.headers["x-forwarded-for"].split(",");
       const likeIt = req.query.like ? req.query.like : false;
 
-      console.log("stock type: ", typeof req.query.stock);
-      console.log(ipAddress, likeIt ? "liked" : "not liked");
-
-      // Try to add a Like for this IP
       if (likeIt) {
+        // Add a Like for this IP
         await likeStock(stock, ipAddress);
       }
-
       // Retrieve the current likes for this stock
       const likeCount = await getLikes(stock);
-      // Fetch the stock price
+      // Retrieve the stock price
       const price = await getPrice(stock);
-      console.log(price);
 
-      res.json({
-        stockData: {
-          stock,
-          price,
-          likes: likeCount
+      if (!stock2) {
+        // return results for 1 stock
+        res.json({ stockData: { stock, price, likes: likeCount } });
+      } else {
+        // process 2nd stock... 
+        if (likeIt) {
+          await likeStock(stock2, ipAddress);
         }
-      });
+        const likeCount2 = await getLikes(stock2);
+        const price2 = await getPrice(stock2);
+        // return both stocks with relative likes
+        res.json({
+          stockData: [
+            { stock: stock, price: price, rel_likes: likeCount - likeCount2 },
+            { stock: stock2, price: price2, rel_likes: likeCount2 - likeCount }
+          ]
+        });
+      }
     } catch (err) {
       next(err);
     }
